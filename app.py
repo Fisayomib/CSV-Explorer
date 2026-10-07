@@ -264,18 +264,30 @@ if uploaded_file is not None:
                             for condition in conditions:
                                 match_mask |= condition
 
-                            preview = df[[rule_source_column]].copy()
-                            preview[output_column] = np.select(
+                            prepared_df = df.copy()
+                            prepared_df[output_column] = np.select(
                                 conditions,
                                 values,
                                 default=np.nan,
                             )
+                            preview = prepared_df[
+                                [rule_source_column, output_column]
+                            ]
 
                             st.write(
                                 f"Rows matching at least one rule: "
                                 f"{int(match_mask.sum())} of {len(df)}"
                             )
                             st.dataframe(preview.head(100), width="stretch")
+
+                            file_stem = uploaded_file.name.rsplit(".", 1)[0]
+                            st.download_button(
+                                "Download prepared CSV",
+                                data=prepared_df.to_csv(index=False).encode("utf-8"),
+                                file_name=f"{file_stem}_prepared.csv",
+                                mime="text/csv",
+                                key="download_prepared_csv",
+                            )
                         except re.error as error:
                             st.error(f"Invalid search pattern: {error}")
 
@@ -287,9 +299,9 @@ if uploaded_file is not None:
         st.write(f"Pandas dtype: `{selected_series.dtype}`")
         st.write(f"Suggested role: **{suggest_role(selected_series)}**")
         st.caption(
-    "This is a heuristic based on data type and distinct values. "
-    "Column meaning still matters; integer values may be category codes."
-)
+            "This is a heuristic based on data type and distinct values. "
+            "Column meaning still matters; integer values may be category codes."
+        )
         st.write(f"Unique non-missing values: {selected_series.nunique(dropna=True)}")
 
         value_counts = (

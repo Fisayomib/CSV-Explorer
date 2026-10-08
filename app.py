@@ -220,7 +220,6 @@ st.set_page_config(page_title="CSV Explorer", page_icon="📊", layout="wide")
 
 st.markdown("""<style>
 :root {
-  color-scheme: light dark;
   --line: color-mix(in srgb, CanvasText 17%, transparent);
   --teal: #347b82;
   --sage: #7fa99a;

@@ -13,14 +13,20 @@ def suggest_role(series):
     column_name = str(series.name).strip().lower()
     uniqueness_ratio = values.nunique() / len(values)
 
-    looks_like_id = (
-        column_name == "id"
+    identifier_names = {
+        "id", "zip", "zipcode", "zip_code", "postal_code", "postcode",
+        "phone", "telephone", "mobile",
+    }
+    looks_like_identifier = (
+        column_name in identifier_names
         or column_name.endswith("_id")
         or column_name.endswith(" id")
     )
 
-    if looks_like_id and uniqueness_ratio >= 0.9:
-        return "Possible identifier"
+    if looks_like_identifier and (
+        uniqueness_ratio >= 0.9 or column_name in identifier_names - {"id"}
+    ):
+        return "Possible identifier or code"
 
     if pd.api.types.is_bool_dtype(series):
         return "Boolean"
@@ -41,6 +47,36 @@ def suggest_role(series):
 
     return "High-cardinality text"
 
+
+def column_type_clue(series):
+    values = series.dropna()
+
+    if values.empty:
+        return "There are no non-missing values to inspect."
+
+    if pd.api.types.is_bool_dtype(series):
+        return "The values are stored as true/false."
+
+    if pd.api.types.is_numeric_dtype(series):
+        return "Pandas read these values as numbers. Check the column name too: codes such as ZIP codes can look numeric."
+
+    text_values = values.astype("string").str.strip()
+    numeric_text = (
+        text_values
+        .str.replace(r"[$,%]", "", regex=True)
+        .str.replace(",", "", regex=False)
+    )
+    parsed = pd.to_numeric(numeric_text, errors="coerce")
+    parse_ratio = parsed.notna().mean()
+
+    if parse_ratio >= 0.8:
+        if text_values.str.contains("%", regex=False, na=False).any():
+            return "These values look numeric but are stored as text and include percent signs."
+        if text_values.str.contains(r"[$,]", regex=True, na=False).any():
+            return "These values look numeric but are stored as text and include currency symbols or commas."
+        return "These values look numeric but are stored as text."
+
+    return "Pandas read these values as text. The column's meaning may need a human check."
 st.set_page_config(page_title="CSV Explorer", page_icon="📊")
 
 st.title("CSV Explorer")
@@ -292,40 +328,198 @@ if uploaded_file is not None:
                             st.error(f"Invalid search pattern: {error}")
 
         st.subheader("Inspect a column")
+        st.caption(
+            "Choose one column for a closer look. These checks are clues to review, "
+            "not automatic decisions or changes to your data."
+        )
 
         selected_column = st.selectbox("Choose a column", df.columns)
         selected_series = df[selected_column]
-
-        st.write(f"Pandas dtype: `{selected_series.dtype}`")
-        st.write(f"Suggested role: **{suggest_role(selected_series)}**")
-        st.caption(
-            "This is a heuristic based on data type and distinct values. "
-            "Column meaning still matters; integer values may be category codes."
+        suggested_role = suggest_role(selected_series)
+        non_missing = selected_series.dropna()
+        missing_count = int(selected_series.isna().sum())
+        missing_percent = (
+            missing_count / len(selected_series) * 100
+            if len(selected_series)
+            else 0
         )
-        st.write(f"Unique non-missing values: {selected_series.nunique(dropna=True)}")
-
-        value_counts = (
-            selected_series
-            .value_counts(dropna=False)
-            .head(10)
-            .rename_axis("Value")
-            .reset_index(name="Count")
+        unique_count = int(non_missing.nunique())
+        unique_ratio = (
+            unique_count / len(non_missing)
+            if len(non_missing)
+            else 0
         )
+        non_missing_counts = non_missing.value_counts()
+        dominant_count = (
+            int(non_missing_counts.iloc[0])
+            if not non_missing_counts.empty
+            else 0
+        )
+        dominant_percent = (
+            dominant_count / len(non_missing) * 100
+            if len(non_missing)
+            else 0
+        )
+
+        st.write(f"**Pandas stored type:** `{selected_series.dtype}`")
+        st.write(f"**Possible role:** {suggested_role}")
+        st.caption(column_type_clue(selected_series))
+
+        missing_metric, distinct_metric, ratio_metric, dominant_metric = st.columns(4)
+        missing_metric.metric("Missing", f"{missing_count:,}", f"{missing_percent:.1f}% of rows")
+        distinct_metric.metric("Different values", f"{unique_count:,}")
+        ratio_metric.metric("Distinct-value ratio", f"{unique_ratio:.1%}")
+        dominant_metric.metric("Most common value", f"{dominant_percent:.1f}%")
+
+        if unique_count == 1 and len(non_missing):
+            st.warning("This column has one non-missing value throughout, so it may add little information to a model.")
+        elif dominant_percent >= 95:
+            st.info(
+                f"The most common value appears in {dominant_percent:.1f}% of non-missing rows. "
+                "This column may be nearly constant."
+            )
+
+        if unique_ratio >= 0.9 and len(non_missing) > 1:
+            st.info(
+                "Nearly every non-missing row has a different value. "
+                "This can indicate an ID, though the column's meaning matters."
+            )
 
         st.write("Most common values")
-        st.dataframe(value_counts, width="stretch")
+        if non_missing_counts.empty:
+            st.info("There are no non-missing values to count.")
+        else:
+            value_counts = non_missing_counts.head(10).rename_axis("Value").reset_index(name="Count")
+            value_counts["Percent of non-missing"] = (
+                value_counts["Count"] / len(non_missing) * 100
+            ).round(1)
+            st.dataframe(value_counts, width="stretch", hide_index=True)
+
+        st.write("Raw samples")
+        st.caption("Compare a few original values from the beginning, end, and a reproducible random sample.")
+        sample_parts = []
+        for sample_label, sample_values in [
+            ("First rows", selected_series.head(3)),
+            ("Random rows", selected_series.sample(min(3, len(selected_series)), random_state=42) if len(selected_series) else selected_series),
+            ("Last rows", selected_series.tail(3)),
+        ]:
+            if not sample_values.empty:
+                sample_parts.append(
+                    pd.DataFrame(
+                        {
+                            "Sample": sample_label,
+                            "Data row": sample_values.index + 1,
+                            "Value": sample_values.astype("object").to_numpy(),
+                        }
+                    )
+                )
+        if sample_parts:
+            st.dataframe(pd.concat(sample_parts, ignore_index=True), width="stretch", hide_index=True)
+
+        placeholder_counts = []
+        numeric_placeholders = {-1, -9, -99, -999, 999, 9999}
+        text_placeholders = {"n/a", "na", "unknown", "?", "null"}
+        for value, count in non_missing_counts.items():
+            if isinstance(value, str) and value.strip().casefold() in text_placeholders:
+                placeholder_counts.append({"Possible placeholder": value, "Count": int(count)})
+            elif (
+                pd.api.types.is_numeric_dtype(selected_series)
+                and not pd.api.types.is_bool_dtype(selected_series)
+                and value in numeric_placeholders
+            ):
+                placeholder_counts.append({"Possible placeholder": value, "Count": int(count)})
+
+        if placeholder_counts:
+            st.write("Values to check as possible placeholders")
+            st.dataframe(pd.DataFrame(placeholder_counts), width="stretch", hide_index=True)
+            st.caption(
+                "These values may be valid. For example, zero can be a real measurement, "
+                "so check the column's meaning before treating any value as missing."
+            )
+
+        if pd.api.types.is_numeric_dtype(selected_series) and not pd.api.types.is_bool_dtype(selected_series):
+            st.write("Numeric details")
+            if not non_missing.empty:
+                summary = non_missing.describe().to_frame(name="Value")
+                summary.loc["median"] = non_missing.median()
+                summary.loc["skewness"] = non_missing.skew() if len(non_missing) > 2 else np.nan
+                st.dataframe(summary, width="stretch")
+
+                zero_count = int((non_missing == 0).sum())
+                negative_count = int((non_missing < 0).sum())
+                zero_percent = zero_count / len(non_missing) * 100
+                st.write(
+                    f"Zero values: **{zero_count:,} ({zero_percent:.1f}%)** · "
+                    f"Negative values: **{negative_count:,}**"
+                )
+
+                q1 = non_missing.quantile(0.25)
+                q3 = non_missing.quantile(0.75)
+                iqr = q3 - q1
+                lower_fence = q1 - 1.5 * iqr
+                upper_fence = q3 + 1.5 * iqr
+                outlier_count = int(((non_missing < lower_fence) | (non_missing > upper_fence)).sum())
+                st.caption(
+                    f"IQR check: {outlier_count:,} values fall outside the usual 1.5×IQR range. "
+                    "This flags unusual values for review; it does not mean they are errors."
+                )
+
+            if pd.api.types.is_integer_dtype(selected_series) and unique_count <= 20:
+                st.info(
+                    "This is an integer column with few different values. "
+                    "It may represent categories or codes rather than a continuous measurement."
+                )
+
+        elif not pd.api.types.is_bool_dtype(selected_series) and not non_missing.empty:
+            st.write("Category details")
+            rare_count = int((non_missing_counts / len(non_missing) < 0.01).sum())
+            st.write(
+                f"Categories appearing in under 1% of non-missing rows: **{rare_count}**"
+            )
+
+            normalized_labels = (
+                non_missing.astype("string")
+                .str.strip()
+                .str.casefold()
+            )
+            label_variants = []
+            raw_labels = non_missing.astype("string")
+            for _, group in raw_labels.groupby(normalized_labels):
+                distinct_labels = group.dropna().drop_duplicates()
+                if len(distinct_labels) > 1:
+                    label_variants.append(
+                        {
+                            "Possible formatting variants": ", ".join(
+                                distinct_labels.astype(str).head(5)
+                            ),
+                            "Variant count": len(distinct_labels),
+                        }
+                    )
+            if label_variants:
+                st.write("Possible case or whitespace differences")
+                st.dataframe(
+                    pd.DataFrame(label_variants).head(10),
+                    width="stretch",
+                    hide_index=True,
+                )
+                st.caption(
+                    "These values differ only by letter case or surrounding spaces. "
+                    "Similar spellings and synonyms still need human review."
+                )
 
         st.write("Distribution")
-
-        if selected_series.dropna().empty:
+        if non_missing.empty:
             st.info("No non-missing values to chart.")
-        elif suggest_role(selected_series) == "Possible identifier":
-            st.info("This column looks like an identifier, so a chart may not be useful.")
+        elif suggested_role == "Possible identifier or code":
+            st.info(
+                "This may be an identifier or code, so a distribution chart may not be useful."
+            )
         elif (
             pd.api.types.is_numeric_dtype(selected_series)
-            and suggest_role(selected_series) == "Numeric"
+            and not pd.api.types.is_bool_dtype(selected_series)
+            and suggested_role == "Numeric"
         ):
-            chart_data = selected_series.dropna().to_frame(name="Value")
+            chart_data = non_missing.to_frame(name="Value")
             figure = px.histogram(
                 chart_data,
                 x="Value",
@@ -334,9 +528,7 @@ if uploaded_file is not None:
             )
             st.plotly_chart(figure, width="stretch")
         else:
-            chart_counts = (
-                selected_series.dropna().astype("string").value_counts().head(15)
-            )
+            chart_counts = non_missing.astype("string").value_counts().head(15)
             chart_data = chart_counts.rename_axis("Value").reset_index(name="Count")
             figure = px.bar(
                 chart_data,
@@ -347,33 +539,3 @@ if uploaded_file is not None:
             )
             st.plotly_chart(figure, width="stretch")
 
-        if pd.api.types.is_numeric_dtype(selected_series):
-            st.write("Numeric summary")
-            st.dataframe(
-                selected_series.describe().to_frame(name="Value"),
-                width="stretch",
-            )
-            sentinel_candidates = {-1, -9, -99, -999, 999, 9999}
-            sentinel_counts = selected_series.value_counts()
-            sentinel_counts = sentinel_counts[
-                sentinel_counts.index.isin(sentinel_candidates)
-            ]
-
-            if not sentinel_counts.empty:
-                st.write("Possible sentinel values")
-                st.caption(
-                    "These values are sometimes used as placeholders. "
-                    "Review them in context; they may be valid measurements."
-                )
-
-                sentinel_summary = pd.DataFrame(
-                    {
-                        "Value": sentinel_counts.index,
-                        "Count": sentinel_counts.to_numpy(),
-                        "Percent of non-missing": (
-                            sentinel_counts / selected_series.count() * 100
-                        ).round(1).to_numpy(),
-                    }
-                )
-
-                st.dataframe(sentinel_summary, width="stretch", hide_index=True)

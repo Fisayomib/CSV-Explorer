@@ -220,77 +220,62 @@ st.set_page_config(page_title="CSV Explorer", page_icon="📊", layout="wide")
 
 st.markdown("""<style>
 :root {
-  --canvas: var(--background-color, var(--st-background-color, #f2f7fa));
-  --surface: var(--secondary-background-color, var(--st-secondary-background-color, #ffffff));
-  --ink: var(--text-color, var(--st-text-color, #25394a));
-  --heading: var(--ink);
-  --muted: color-mix(in srgb, var(--ink) 64%, transparent);
-  --line: var(--border-color, var(--st-border-color, color-mix(in srgb, var(--ink) 16%, transparent)));
-  --teal: var(--primary-color, var(--st-primary-color, #347b82));
-  --sage: color-mix(in srgb, var(--teal) 58%, #a7c9af);
+  color-scheme: light dark;
+  --line: color-mix(in srgb, CanvasText 17%, transparent);
+  --teal: #347b82;
+  --sage: #7fa99a;
 }
 .stApp, [data-testid="stAppViewContainer"] {
-  background-color: var(--canvas);
   background-image:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='720' height='440' viewBox='0 0 720 440'%3E%3Cg fill='none' stroke='%236d9eaa' stroke-opacity='.16' stroke-width='1.4'%3E%3Cpath d='M38 104 125 62 208 122 290 78 384 126 480 72 576 122 676 66M38 104 78 196 168 214 208 122 268 204 366 224 384 126 466 206 566 214 576 122 642 196M78 196 36 292 132 342 224 294 268 204 366 224 408 316 502 284 566 214 642 196 682 300M132 342 224 294 310 370 408 316 502 284 592 350 682 300'/%3E%3C/g%3E%3Cg fill='%236d9eaa' fill-opacity='.23'%3E%3Ccircle cx='38' cy='104' r='4'/%3E%3Ccircle cx='125' cy='62' r='4'/%3E%3Ccircle cx='208' cy='122' r='4'/%3E%3Ccircle cx='290' cy='78' r='4'/%3E%3Ccircle cx='384' cy='126' r='4'/%3E%3Ccircle cx='480' cy='72' r='4'/%3E%3Ccircle cx='576' cy='122' r='4'/%3E%3Ccircle cx='676' cy='66' r='4'/%3E%3Ccircle cx='78' cy='196' r='4'/%3E%3Ccircle cx='168' cy='214' r='4'/%3E%3Ccircle cx='268' cy='204' r='4'/%3E%3Ccircle cx='366' cy='224' r='4'/%3E%3Ccircle cx='466' cy='206' r='4'/%3E%3Ccircle cx='566' cy='214' r='4'/%3E%3Ccircle cx='642' cy='196' r='4'/%3E%3Ccircle cx='36' cy='292' r='4'/%3E%3Ccircle cx='132' cy='342' r='4'/%3E%3Ccircle cx='224' cy='294' r='4'/%3E%3Ccircle cx='310' cy='370' r='4'/%3E%3Ccircle cx='408' cy='316' r='4'/%3E%3Ccircle cx='502' cy='284' r='4'/%3E%3Ccircle cx='592' cy='350' r='4'/%3E%3Ccircle cx='682' cy='300' r='4'/%3E%3C/g%3E%3C/svg%3E"),
-    radial-gradient(ellipse at 8% 4%, color-mix(in srgb, var(--teal) 13%, transparent), transparent 34%),
-    radial-gradient(ellipse at 92% 74%, color-mix(in srgb, var(--teal) 10%, transparent), transparent 38%);
+    radial-gradient(ellipse at 8% 4%, rgba(134, 205, 206, 0.12), transparent 34%),
+    radial-gradient(ellipse at 92% 74%, rgba(125, 164, 201, 0.12), transparent 38%);
   background-repeat: no-repeat, no-repeat, no-repeat;
   background-position: right 6rem top 7rem, left top, right bottom;
   background-size: 720px 440px, 760px 560px, 760px 600px;
   background-attachment: fixed;
-  color: var(--ink);
 }
-[data-testid="stHeader"] { background: color-mix(in srgb, var(--canvas) 90%, transparent); }
+[data-testid="stHeader"] { background: transparent; }
 .block-container { max-width: 1260px; padding-top: 2.2rem; padding-bottom: 4rem; }
-h1, h2, h3 { color: var(--heading) !important; letter-spacing: -0.025em; }
-p, label { color: var(--ink); }
-[data-testid="stCaptionContainer"] p { color: var(--muted) !important; }
+h1, h2, h3 { letter-spacing: -0.025em; }
+[data-testid="stCaptionContainer"] p { opacity: 0.72; }
 [data-testid="stMetric"] {
-  background: var(--surface);
+  background: color-mix(in srgb, Canvas 94%, CanvasText 6%);
   border: 1px solid var(--line);
   border-top: 3px solid var(--sage);
   border-radius: 14px;
   padding: 1rem 1.1rem;
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--ink) 7%, transparent);
+  box-shadow: 0 8px 24px color-mix(in srgb, CanvasText 7%, transparent);
 }
-[data-testid="stMetricLabel"] { color: var(--muted) !important; }
-[data-testid="stMetricValue"] { color: var(--heading) !important; }
 .stTabs [data-baseweb="tab-list"] { gap: 0.45rem; border-bottom: 1px solid var(--line); }
 .stTabs [data-baseweb="tab"] {
-  color: var(--muted);
   padding: 0.85rem 1.2rem;
-  background: color-mix(in srgb, var(--surface) 54%, transparent);
+  background: color-mix(in srgb, Canvas 45%, transparent);
   border-radius: 10px 10px 0 0;
 }
 .stTabs [aria-selected="true"] {
-  color: var(--heading) !important;
   font-weight: 700;
-  background: var(--surface);
+  background: color-mix(in srgb, Canvas 94%, CanvasText 6%);
 }
 .stTabs [data-baseweb="tab-highlight"] { background: var(--teal); height: 3px; }
 [data-testid="stDataFrame"] {
-  background: var(--surface);
+  background: transparent;
   border: 1px solid var(--line);
   border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--ink) 6%, transparent);
+  box-shadow: 0 8px 24px color-mix(in srgb, CanvasText 6%, transparent);
 }
 [data-testid="stExpander"] {
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  background: color-mix(in srgb, Canvas 90%, CanvasText 10%);
   border: 1px solid var(--line);
   border-radius: 12px;
 }
 [data-testid="stTextInput"] input,
 [data-testid="stTextArea"] textarea,
 [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
-  background: var(--surface);
-  border-color: var(--line);
-  color: var(--ink);
   border-radius: 10px;
 }
 [data-testid="stAlert"] { border-radius: 12px; }
-button[kind="primary"] { background: var(--teal); border-color: var(--teal); }
 </style>""", unsafe_allow_html=True)
 st.title("CSV Explorer")
 st.write("Find the patterns, gaps, and signals hiding in your dataset.")

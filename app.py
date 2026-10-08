@@ -218,7 +218,7 @@ def column_type_clue(series):
     return "Pandas read these values as text. The column's meaning may need a human check."
 st.set_page_config(page_title="CSV Explorer", page_icon="📊", layout="wide")
 
-        st.markdown("""<style>
+st.markdown("""<style>
 :root {
   --canvas: #f6f3ed;
   --surface: #fffefa;
@@ -227,123 +227,76 @@ st.set_page_config(page_title="CSV Explorer", page_icon="📊", layout="wide")
   --muted: #687986;
   --line: #e5e0d7;
   --teal: #668b7a;
-  --blue-wash: #eaf1f5;
-  --amber-wash: #fbf2df;
 }
-.stApp, [data-testid="stAppViewContainer"] {
-  background: var(--canvas);
-  color: var(--ink);
-}
+.stApp, [data-testid="stAppViewContainer"] { background: var(--canvas); color: var(--ink); }
 [data-testid="stHeader"] { background: rgba(246, 243, 237, 0.92); }
-.block-container {
-  max-width: 1260px;
-  padding-top: 2.2rem;
-  padding-bottom: 4rem;
-}
-h1, h2, h3 {
-  color: var(--heading) !important;
-  letter-spacing: -0.025em;
-}
-p, label, [data-testid="stMarkdownContainer"] {
-  color: var(--ink);
-}
-[data-testid="stCaptionContainer"] p {
-  color: var(--muted) !important;
-}
+.block-container { max-width: 1260px; padding-top: 2.2rem; padding-bottom: 4rem; }
+h1, h2, h3 { color: var(--heading) !important; letter-spacing: -0.025em; }
+p, label, [data-testid="stMarkdownContainer"] { color: var(--ink); }
+[data-testid="stCaptionContainer"] p { color: var(--muted) !important; }
 [data-testid="stMetric"] {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 1rem 1.1rem;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 14px; padding: 1rem 1.1rem;
 }
 [data-testid="stMetricLabel"] { color: var(--muted) !important; }
 [data-testid="stMetricValue"] { color: var(--heading) !important; }
-.stTabs [data-baseweb="tab-list"] {
-  gap: 0.35rem;
-  border-bottom: 1px solid var(--line);
-}
-.stTabs [data-baseweb="tab"] {
-  color: var(--muted);
-  padding: 0.8rem 1.1rem;
-  background: transparent;
-}
-.stTabs [aria-selected="true"] {
-  color: var(--heading) !important;
-  font-weight: 650;
-}
+.stTabs [data-baseweb="tab-list"] { gap: 0.35rem; border-bottom: 1px solid var(--line); }
+.stTabs [data-baseweb="tab"] { color: var(--muted); padding: 0.8rem 1.1rem; background: transparent; }
+.stTabs [aria-selected="true"] { color: var(--heading) !important; font-weight: 650; }
 .stTabs [data-baseweb="tab-highlight"] { background: var(--teal); }
 [data-testid="stDataFrame"] {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  overflow: hidden;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 12px; overflow: hidden;
 }
 [data-testid="stExpander"] {
-  background: rgba(255, 254, 250, 0.78);
-  border: 1px solid var(--line);
-  border-radius: 12px;
+  background: rgba(255, 254, 250, 0.78); border: 1px solid var(--line); border-radius: 12px;
 }
-[data-testid="stTextInput"] input,
-[data-testid="stTextArea"] textarea,
+[data-testid="stTextInput"] input, [data-testid="stTextArea"] textarea,
 [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
-  background: var(--surface);
-  border-color: var(--line);
-  color: var(--ink);
-  border-radius: 10px;
+  background: var(--surface); border-color: var(--line); color: var(--ink); border-radius: 10px;
 }
 [data-testid="stAlert"] { border-radius: 12px; }
-button[kind="primary"] {
-  background: var(--teal);
-  border-color: var(--teal);
-}
+button[kind="primary"] { background: var(--teal); border-color: var(--teal); }
 </style>""", unsafe_allow_html=True)
-        st.title("CSV Explorer")
-        st.write("A calmer place to understand your data before you use it.")
-        uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
+st.title("CSV Explorer")
+st.write("A calm workspace to understand your data before you use it.")
+uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
 
-        if uploaded_file is not None:
-            try:
-                df = pd.read_csv(uploaded_file)
-            except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError) as error:
-                st.error(f"Could not read this CSV: {error}")
-            else:
-            st.caption(f"Loaded file: {uploaded_file.name}")
-            missing_cells = int(df.isna().sum().sum())
-            empty_rows = int(df.isna().all(axis=1).sum())
-            duplicate_rows = int(df.duplicated().sum())
+if uploaded_file is not None:
+    try:
+        df = pd.read_csv(uploaded_file)
+    except (pd.errors.EmptyDataError, pd.errors.ParserError, UnicodeDecodeError) as error:
+        st.error(f"Could not read this CSV: {error}")
+    else:
+        st.caption(f"Loaded file: {uploaded_file.name}")
 
-            rows_with_missing_mask = df.isna().any(axis=1)
-            rows_with_missing = int(rows_with_missing_mask.sum())
+        missing_cells = int(df.isna().sum().sum())
+        empty_rows = int(df.isna().all(axis=1).sum())
+        duplicate_rows = int(df.duplicated().sum())
+        rows_with_missing_mask = df.isna().any(axis=1)
+        rows_with_missing = int(rows_with_missing_mask.sum())
 
-            missing_col, empty_col, duplicate_col, affected_rows_col = st.columns(4)
-            missing_col.metric("Missing cells", missing_cells)
-            empty_col.metric("Fully empty rows", empty_rows)
-            duplicate_col.metric("Duplicate rows", duplicate_rows)
-            affected_rows_col.metric("Rows with missing values", rows_with_missing)
+        missing_summary = pd.DataFrame(
+            {
+                "Column": df.columns,
+                "Missing values": df.isna().sum().to_numpy(),
+                "Missing %": (df.isna().mean() * 100).round(1).to_numpy(),
+                "Pandas dtype": df.dtypes.astype(str).to_numpy(),
+                "Unique values": df.nunique(dropna=True).to_numpy(),
+            }
+        )
 
-            missing_summary = pd.DataFrame(
-                {
-                    "Column": df.columns,
-                    "Missing values": df.isna().sum().to_numpy(),
-                    "Missing %": (df.isna().mean() * 100).round(1).to_numpy(),
-                    "Pandas dtype": df.dtypes.astype(str).to_numpy(),
-                    "Unique values": df.nunique(dropna=True).to_numpy(),
-                }
-            )
+        row_metric, column_metric, missing_metric, duplicate_metric = st.columns(4)
+        row_metric.metric("Rows", f"{df.shape[0]:,}")
+        column_metric.metric("Columns", f"{df.shape[1]:,}")
+        missing_metric.metric("Missing cells", f"{missing_cells:,}")
+        duplicate_metric.metric("Duplicate rows", f"{duplicate_rows:,}")
 
+        overview_tab, investigate_tab, prepare_tab = st.tabs(
+            ["Overview", "Investigate", "Prepare"]
+        )
 
-                row_metric, column_metric, missing_metric, duplicate_metric = st.columns(4)
-                row_metric.metric("Rows", f"{df.shape[0]:,}")
-                column_metric.metric("Columns", f"{df.shape[1]:,}")
-                missing_metric.metric("Missing cells", f"{missing_cells:,}")
-                duplicate_metric.metric("Duplicate rows", f"{duplicate_rows:,}")
-
-                overview_tab, investigate_tab, prepare_tab = st.tabs(
-                    ["Overview", "Investigate", "Prepare"]
-                )
-
-                with overview_tab:
-                    st.subheader("Things to review")
+        with overview_tab:
             st.subheader("Things to review")
 
             suggestions = []
@@ -377,40 +330,37 @@ button[kind="primary"] {
                 st.success("No missing cells, fully empty rows, or exact duplicates were found.")
 
 
-                    st.divider()
-                    st.subheader("Data preview")
-                    st.caption("A quick look at the first rows in your file.")
-                    st.dataframe(df.head(10), width="stretch")
-                    st.divider()
-                    st.subheader("Column overview")
-                    st.caption("Compare missing values, storage types, and distinct values across columns.")
-                    st.dataframe(missing_summary, width="stretch", hide_index=True)
+            st.divider()
+            st.subheader("Data preview")
+            st.caption("A quick look at the first rows in your file.")
+            st.dataframe(df.head(10), width="stretch")
+            st.divider()
+            st.subheader("Column overview")
+            st.caption("Compare missing values, storage types, and distinct values across columns.")
+            st.dataframe(missing_summary, width="stretch", hide_index=True)
 
-                with investigate_tab:
-                    st.subheader("Investigate the data")
-                    st.caption("Choose a specific issue or column to understand what is in the dataset.")
-                    rows_with_missing_mask = df.isna().any(axis=1)
-                    rows_with_missing = int(rows_with_missing_mask.sum())
-                    empty_rows = int(df.isna().all(axis=1).sum())
-                    st.write("Missing values by column")
-                    missing_columns = missing_summary.loc[
-                        missing_summary["Missing values"] > 0
-                    ].sort_values("Missing values", ascending=False)
-                    if missing_columns.empty:
-                        st.success("No missing values were found.")
-                    else:
-                        st.caption("Columns with the most missing values appear first.")
-                        st.dataframe(
-                            missing_columns[
-                                ["Column", "Missing values", "Missing %", "Pandas dtype"]
-                            ],
-                            width="stretch",
-                            hide_index=True,
-                        )
-                    st.caption(
-                        f"Rows with any missing value: {rows_with_missing:,} · "
-                        f"Fully empty rows: {empty_rows:,}"
-                    )
+        with investigate_tab:
+            st.subheader("Investigate the data")
+            st.caption("Choose a specific issue or column to understand what's in the dataset.")
+            st.subheader("Missing values by column")
+            missing_columns = missing_summary.loc[
+                missing_summary["Missing values"] > 0
+            ].sort_values("Missing values", ascending=False)
+            if missing_columns.empty:
+                st.success("No missing values were found.")
+            else:
+                st.caption("Columns with the most missing values appear first.")
+                st.dataframe(
+                    missing_columns[
+                        ["Column", "Missing values", "Missing %", "Pandas dtype"]
+                    ],
+                    width="stretch",
+                    hide_index=True,
+                )
+            st.caption(
+                f"Rows with any missing value: {rows_with_missing:,} · "
+                f"Fully empty rows: {empty_rows:,}"
+            )
             with st.expander(f"Inspect rows with missing values ({rows_with_missing})"):
                 if rows_with_missing:
                     st.dataframe(
@@ -701,12 +651,11 @@ button[kind="primary"] {
                 st.plotly_chart(figure, width="stretch")
 
 
-                with prepare_tab:
-                    st.subheader("Prepare a copy of your data")
-                    st.caption(
-                        "Create a new column with a formula, check the result, "
-                        "then download a prepared copy. Your uploaded file stays unchanged."
-                    )
+        with prepare_tab:
+            st.caption(
+                "Create a new column with a formula, preview it, then download a copy. "
+                "The uploaded file stays unchanged."
+            )
             st.subheader("Create a column with a formula")
             st.caption(
                 "Write a formula using any columns in your dataset. The preview shows the new result; "

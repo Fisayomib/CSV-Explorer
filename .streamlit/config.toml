@@ -1,7 +1,21 @@
 [theme]
 base = "light"
+font = "sans serif"
+
+[theme.light]
 primaryColor = "#347B82"
 backgroundColor = "#F2F7FA"
 secondaryBackgroundColor = "#FFFFFF"
 textColor = "#25394A"
-font = "sans serif"
+borderColor = "#DCE7EB"
+dataframeHeaderBackgroundColor = "#EAF1F4"
+chartCategoricalColors = ["#347B82", "#7FA99A", "#5B7C99", "#D49A66", "#8B79A6"]
+
+[theme.dark]
+primaryColor = "#78B6AA"
+backgroundColor = "#111A22"
+secondaryBackgroundColor = "#1C2A35"
+textColor = "#E4EDF2"
+borderColor = "#344651"
+dataframeHeaderBackgroundColor = "#243642"
+chartCategoricalColors = ["#78B6AA", "#B0C995", "#80A9D0", "#E0AA72", "#B49ACD"]

@@ -345,6 +345,7 @@ if uploaded_file is not None:
                             .str.strip()
                             .str.casefold()
                             .map(unit_aliases)
+                            .fillna("")
                         )
                         numeric_values = pd.to_numeric(
                             df[measurement_column],

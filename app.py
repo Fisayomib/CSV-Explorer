@@ -218,115 +218,186 @@ if uploaded_file is not None:
                 except re.error as error:
                     st.error(f"Invalid search pattern: {error}")
 
-        st.subheader("Preview a derived column")
+        st.subheader("Convert measurement units")
         st.caption(
-            "Enter up to two text patterns and the number to assign to each. "
-            "Rule 1 takes priority if a row matches both; unmatched rows stay blank."
+            "Use this when the measurement and its unit are in separate columns, "
+            "for example Weight = 25 and Weight Unit = kg. The app creates a new "
+            "standardized column and keeps the uploaded data unchanged."
         )
 
-        if not text_columns:
-            st.info("A derived-column rule needs at least one text column.")
+        numeric_columns = [
+            column for column in df.columns
+            if pd.api.types.is_numeric_dtype(df[column])
+            and not pd.api.types.is_bool_dtype(df[column])
+        ]
+        unit_columns = [
+            column for column in df.columns
+            if column not in numeric_columns
+            and (
+                pd.api.types.is_string_dtype(df[column])
+                or df[column].dtype == object
+            )
+        ]
+
+        unit_definitions = {
+            "kg": ("mass", 1.0),
+            "g": ("mass", 0.001),
+            "mg": ("mass", 0.000001),
+            "lb": ("mass", 0.45359237),
+            "oz": ("mass", 0.028349523125),
+            "tonne": ("mass", 1000.0),
+            "ml": ("volume", 1.0),
+            "l": ("volume", 1000.0),
+        }
+        unit_aliases = {
+            "kg": "kg", "kilogram": "kg", "kilograms": "kg",
+            "g": "g", "gram": "g", "grams": "g",
+            "mg": "mg", "milligram": "mg", "milligrams": "mg",
+            "lb": "lb", "lbs": "lb", "pound": "lb", "pounds": "lb",
+            "oz": "oz", "ounce": "oz", "ounces": "oz",
+            "tonne": "tonne", "tonnes": "tonne", "ton": "tonne", "tons": "tonne",
+            "ml": "ml", "milliliter": "ml", "milliliters": "ml",
+            "millilitre": "ml", "millilitres": "ml",
+            "l": "l", "liter": "l", "liters": "l", "litre": "l", "litres": "l",
+        }
+
+        if not numeric_columns:
+            st.info("I couldn't find a numeric measurement column to convert.")
+        elif not unit_columns:
+            st.info(
+                "I couldn't find a text column containing units. "
+                "This converter expects the number and unit in separate columns."
+            )
         else:
-            rule_source_column = st.selectbox(
-                "Text column to use",
-                text_columns,
-                key="derive_source",
+            measurement_column = st.selectbox(
+                "Which column contains the measurement?",
+                numeric_columns,
+                key="unit_measurement_column",
+            )
+            unit_column = st.selectbox(
+                "Which column contains its unit?",
+                unit_columns,
+                key="unit_label_column",
             )
 
-            rule_pattern_1 = st.text_input(
-                "Rule 1 pattern",
-                placeholder="50 kg",
-                key="derive_pattern_1",
+            raw_units = (
+                df[unit_column]
+                .dropna()
+                .astype("string")
+                .str.strip()
             )
-            rule_value_1 = st.number_input(
-                "Rule 1 value",
-                value=50.0,
-                key="derive_value_1",
-            )
+            observed_canonical_units = {}
+            for raw_unit in raw_units.drop_duplicates():
+                canonical = unit_aliases.get(str(raw_unit).casefold())
+                if canonical:
+                    observed_canonical_units.setdefault(canonical, str(raw_unit))
 
-            rule_pattern_2 = st.text_input(
-                "Rule 2 pattern",
-                placeholder="1/2 tonne",
-                key="derive_pattern_2",
-            )
-            rule_value_2 = st.number_input(
-                "Rule 2 value",
-                value=500.0,
-                key="derive_value_2",
-            )
+            if not observed_canonical_units:
+                st.info(
+                    "I couldn't recognize common mass or volume units in this column yet. "
+                    "The column inspection above can show you its values."
+                )
+            else:
+                observed_units = list(observed_canonical_units)
+                source_unit = st.selectbox(
+                    "Convert values from",
+                    observed_units,
+                    format_func=lambda unit: f"{observed_canonical_units[unit]} ({unit})",
+                    key="unit_source",
+                )
+                source_dimension = unit_definitions[source_unit][0]
+                target_units = [
+                    unit for unit, (dimension, _) in unit_definitions.items()
+                    if dimension == source_dimension and unit != source_unit
+                ]
 
-            output_column = st.text_input(
-                "New column name",
-                value="derived_value",
-                key="derive_output",
-            )
-
-            if output_column.strip():
-                if output_column in df.columns:
-                    st.warning("Choose a new column name that does not already exist.")
+                if not target_units:
+                    st.info("There isn't another supported unit in this measurement group.")
                 else:
-                    rule_pairs = [
-                        (rule_pattern_1, rule_value_1),
-                        (rule_pattern_2, rule_value_2),
-                    ]
-                    active_rules = [
-                        (pattern, value)
-                        for pattern, value in rule_pairs
-                        if pattern.strip()
-                    ]
+                    preferred_target = (
+                        "lb" if source_dimension == "mass" and source_unit == "kg"
+                        else "kg" if source_dimension == "mass"
+                        else "l" if source_unit == "ml"
+                        else "ml"
+                    )
+                    target_unit = st.selectbox(
+                        "Convert to",
+                        target_units,
+                        index=target_units.index(preferred_target)
+                        if preferred_target in target_units else 0,
+                        key="unit_target",
+                    )
 
-                    if not active_rules:
-                        st.info("Enter at least one rule pattern.")
+                    output_column = re.sub(
+                        r"\W+",
+                        "_",
+                        f"{measurement_column}_{target_unit}",
+                    ).strip("_")
+                    if output_column in df.columns:
+                        st.warning(
+                            f"The output column {output_column!r} already exists. "
+                            "Choose a different measurement column or remove/rename that existing column."
+                        )
                     else:
-                        try:
-                            conditions = []
-                            values = []
+                        normalized_units = (
+                            df[unit_column]
+                            .astype("string")
+                            .str.strip()
+                            .str.casefold()
+                            .map(unit_aliases)
+                        )
+                        numeric_values = pd.to_numeric(
+                            df[measurement_column],
+                            errors="coerce",
+                        )
+                        source_mask = normalized_units == source_unit
+                        target_mask = normalized_units == target_unit
+                        source_rows = source_mask & numeric_values.notna()
+                        target_rows = target_mask & numeric_values.notna()
+                        other_rows = (
+                            ~(source_mask | target_mask)
+                            & numeric_values.notna()
+                        )
 
-                            for pattern, value in active_rules:
-                                condition = (
-                                    df[rule_source_column]
-                                    .astype("string")
-                                    .str.contains(
-                                        pattern,
-                                        case=False,
-                                        na=False,
-                                        regex=True,
-                                    )
-                                )
-                                conditions.append(condition)
-                                values.append(value)
+                        conversion_factor = (
+                            unit_definitions[source_unit][1]
+                            / unit_definitions[target_unit][1]
+                        )
+                        converted_values = pd.Series(
+                            np.nan,
+                            index=df.index,
+                            dtype="float64",
+                        )
+                        converted_values.loc[source_rows] = (
+                            numeric_values.loc[source_rows] * conversion_factor
+                        )
+                        converted_values.loc[target_rows] = numeric_values.loc[target_rows]
 
-                            match_mask = pd.Series(False, index=df.index)
-                            for condition in conditions:
-                                match_mask |= condition
+                        prepared_df = df.copy()
+                        prepared_df[output_column] = converted_values
 
-                            prepared_df = df.copy()
-                            prepared_df[output_column] = np.select(
-                                conditions,
-                                values,
-                                default=np.nan,
-                            )
-                            preview = prepared_df[
-                                [rule_source_column, output_column]
-                            ]
+                        st.write(
+                            f"**{source_unit} → {target_unit}** multiplies the measurement "
+                            f"by **{conversion_factor:.8g}**."
+                        )
+                        converted_metric, kept_metric, other_metric = st.columns(3)
+                        converted_metric.metric("Converted rows", f"{int(source_rows.sum()):,}")
+                        kept_metric.metric("Already in target unit", f"{int(target_rows.sum()):,}")
+                        other_metric.metric("Other or unrecognized units", f"{int(other_rows.sum()):,}")
 
-                            st.write(
-                                f"Rows matching at least one rule: "
-                                f"{int(match_mask.sum())} of {len(df)}"
-                            )
-                            st.dataframe(preview.head(100), width="stretch")
+                        preview = df[[measurement_column, unit_column]].copy()
+                        preview[output_column] = converted_values
+                        st.write("Check a few results before downloading.")
+                        st.dataframe(preview.head(20), width="stretch")
 
-                            file_stem = uploaded_file.name.rsplit(".", 1)[0]
-                            st.download_button(
-                                "Download prepared CSV",
-                                data=prepared_df.to_csv(index=False).encode("utf-8"),
-                                file_name=f"{file_stem}_prepared.csv",
-                                mime="text/csv",
-                                key="download_prepared_csv",
-                            )
-                        except re.error as error:
-                            st.error(f"Invalid search pattern: {error}")
-
+                        file_stem = uploaded_file.name.rsplit(".", 1)[0]
+                        st.download_button(
+                            "Download converted CSV",
+                            data=prepared_df.to_csv(index=False).encode("utf-8"),
+                            file_name=f"{file_stem}_converted.csv",
+                            mime="text/csv",
+                            key="download_unit_conversion",
+                        )
         st.subheader("Inspect a column")
         st.caption(
             "Choose one column for a closer look. These checks are clues to review, "
@@ -394,6 +465,22 @@ if uploaded_file is not None:
                 value_counts["Count"] / len(non_missing) * 100
             ).round(1)
             st.dataframe(value_counts, width="stretch", hide_index=True)
+
+            all_value_counts = non_missing_counts.rename_axis("Value").reset_index(name="Count")
+            all_value_counts["Percent of non-missing"] = (
+                all_value_counts["Count"] / len(non_missing) * 100
+            ).round(1)
+            with st.expander(f"See all {unique_count:,} distinct values"):
+                st.caption(
+                    "This table lists every distinct non-missing value and how often it appears. "
+                    "It is especially useful for checking unit or category columns."
+                )
+                st.dataframe(
+                    all_value_counts,
+                    width="stretch",
+                    hide_index=True,
+                    height=350,
+                )
 
         st.write("Raw samples")
         st.caption("Compare a few original values from the beginning, end, and a reproducible random sample.")

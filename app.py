@@ -127,6 +127,8 @@ def evaluate_formula(expression, dataframe):
             return result
 
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.keywords:
+                raise ValueError("Use positional arguments in formulas.")
             function = node.func.id
             arguments = [evaluate(argument) for argument in node.args]
 
@@ -137,7 +139,10 @@ def evaluate_formula(expression, dataframe):
                 return dataframe[column]
 
             if function == "where" and len(arguments) == 3:
-                return np.where(arguments[0], arguments[1], arguments[2])
+                condition = arguments[0]
+                if isinstance(condition, pd.Series):
+                    condition = condition.fillna(False)
+                return np.where(condition, arguments[1], arguments[2])
 
             if function == "contains" and len(arguments) == 2:
                 return (

@@ -3,6 +3,8 @@ import pandas as pd
 import re
 import plotly.express as px
 import numpy as np
+import ast
+import operator
 
 def suggest_role(series):
     values = series.dropna()
@@ -48,6 +50,138 @@ def suggest_role(series):
     return "High-cardinality text"
 
 
+
+
+def evaluate_formula(expression, dataframe):
+    """Evaluate a small, safe expression language over dataframe columns."""
+    tree = ast.parse(expression, mode="eval")
+
+    binary_operators = {
+        ast.Add: operator.add,
+        ast.Sub: operator.sub,
+        ast.Mult: operator.mul,
+        ast.Div: operator.truediv,
+        ast.FloorDiv: operator.floordiv,
+        ast.Mod: operator.mod,
+        ast.Pow: operator.pow,
+        ast.BitAnd: operator.and_,
+        ast.BitOr: operator.or_,
+        ast.BitXor: operator.xor,
+    }
+    comparison_operators = {
+        ast.Eq: operator.eq,
+        ast.NotEq: operator.ne,
+        ast.Lt: operator.lt,
+        ast.LtE: operator.le,
+        ast.Gt: operator.gt,
+        ast.GtE: operator.ge,
+    }
+
+    def evaluate(node):
+        if isinstance(node, ast.Constant):
+            return node.value
+
+        if isinstance(node, (ast.List, ast.Tuple)):
+            return [evaluate(item) for item in node.elts]
+
+        if isinstance(node, ast.BinOp) and type(node.op) in binary_operators:
+            return binary_operators[type(node.op)](
+                evaluate(node.left),
+                evaluate(node.right),
+            )
+
+        if isinstance(node, ast.UnaryOp):
+            value = evaluate(node.operand)
+            if isinstance(node.op, ast.USub):
+                return -value
+            if isinstance(node.op, ast.UAdd):
+                return +value
+            if isinstance(node.op, ast.Invert):
+                return ~value
+            if isinstance(node.op, ast.Not):
+                return ~value if isinstance(value, pd.Series) else not value
+
+        if isinstance(node, ast.BoolOp):
+            values = [evaluate(value) for value in node.values]
+            operation = operator.and_ if isinstance(node.op, ast.And) else operator.or_
+            result = values[0]
+            for value in values[1:]:
+                result = operation(result, value)
+            return result
+
+        if isinstance(node, ast.Compare):
+            left = evaluate(node.left)
+            result = None
+            for comparison, comparator in zip(node.ops, node.comparators):
+                right = evaluate(comparator)
+                if type(comparison) in comparison_operators:
+                    current = comparison_operators[type(comparison)](left, right)
+                elif isinstance(comparison, (ast.In, ast.NotIn)):
+                    current = left.isin(right) if isinstance(left, pd.Series) else left in right
+                    if isinstance(comparison, ast.NotIn):
+                        current = ~current if isinstance(current, pd.Series) else not current
+                else:
+                    raise ValueError("That comparison is not supported.")
+                result = current if result is None else operator.and_(result, current)
+                left = right
+            return result
+
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            function = node.func.id
+            arguments = [evaluate(argument) for argument in node.args]
+
+            if function == "col" and len(arguments) == 1 and isinstance(arguments[0], str):
+                column = arguments[0]
+                if column not in dataframe.columns:
+                    raise ValueError(f"Column {column!r} was not found.")
+                return dataframe[column]
+
+            if function == "where" and len(arguments) == 3:
+                return np.where(arguments[0], arguments[1], arguments[2])
+
+            if function == "contains" and len(arguments) == 2:
+                return (
+                    arguments[0]
+                    .astype("string")
+                    .str.contains(arguments[1], case=False, na=False, regex=True)
+                )
+
+            if function == "to_number" and len(arguments) == 1:
+                return pd.to_numeric(arguments[0], errors="coerce")
+
+            if function == "is_missing" and len(arguments) == 1:
+                return arguments[0].isna() if isinstance(arguments[0], pd.Series) else pd.isna(arguments[0])
+
+            if function == "is_in" and len(arguments) == 2:
+                return arguments[0].isin(arguments[1])
+
+            if function == "fill_missing" and len(arguments) == 2:
+                return arguments[0].fillna(arguments[1])
+
+            if function == "lower" and len(arguments) == 1:
+                return arguments[0].astype("string").str.lower()
+
+            if function == "strip" and len(arguments) == 1:
+                return arguments[0].astype("string").str.strip()
+
+            if function == "abs" and len(arguments) == 1:
+                return abs(arguments[0])
+
+            if function == "round" and len(arguments) in (1, 2):
+                digits = arguments[1] if len(arguments) == 2 else 0
+                return arguments[0].round(digits) if isinstance(arguments[0], pd.Series) else round(arguments[0], digits)
+
+            raise ValueError(
+                f"Function {function!r} is not supported. "
+                "See the examples for available formula functions."
+            )
+
+        raise ValueError(
+            "This part of the formula isn't supported. Use column references like col(\"Sales\") "
+            "and the listed functions."
+        )
+
+    return evaluate(tree.body)
 def column_type_clue(series):
     values = series.dropna()
 
@@ -218,187 +352,119 @@ if uploaded_file is not None:
                 except re.error as error:
                     st.error(f"Invalid search pattern: {error}")
 
-        st.subheader("Convert measurement units")
+        st.subheader("Create a column with a formula")
         st.caption(
-            "Use this when the measurement and its unit are in separate columns, "
-            "for example Weight = 25 and Weight Unit = kg. The app creates a new "
-            "standardized column and keeps the uploaded data unchanged."
+            "Write a formula using any columns in your dataset. The preview shows the new result; "
+            "your uploaded data stays unchanged."
         )
 
-        numeric_columns = [
-            column for column in df.columns
-            if pd.api.types.is_numeric_dtype(df[column])
-            and not pd.api.types.is_bool_dtype(df[column])
-        ]
-        unit_columns = [
-            column for column in df.columns
-            if column not in numeric_columns
-            and (
-                pd.api.types.is_string_dtype(df[column])
-                or df[column].dtype == object
+        with st.expander("Formula examples"):
+            st.write("Convert kilograms to pounds, while keeping existing pound values unchanged:")
+            st.code(
+                'where(col("Weight Unit") == "kg", '
+                'col("Weight") * 2.20462, col("Weight"))'
             )
-        ]
-
-        unit_definitions = {
-            "kg": ("mass", 1.0),
-            "g": ("mass", 0.001),
-            "mg": ("mass", 0.000001),
-            "lb": ("mass", 0.45359237),
-            "oz": ("mass", 0.028349523125),
-            "tonne": ("mass", 1000.0),
-            "ml": ("volume", 1.0),
-            "l": ("volume", 1000.0),
-        }
-        unit_aliases = {
-            "kg": "kg", "kilogram": "kg", "kilograms": "kg",
-            "g": "g", "gram": "g", "grams": "g",
-            "mg": "mg", "milligram": "mg", "milligrams": "mg",
-            "lb": "lb", "lbs": "lb", "pound": "lb", "pounds": "lb",
-            "oz": "oz", "ounce": "oz", "ounces": "oz",
-            "tonne": "tonne", "tonnes": "tonne", "ton": "tonne", "tons": "tonne",
-            "ml": "ml", "milliliter": "ml", "milliliters": "ml",
-            "millilitre": "ml", "millilitres": "ml",
-            "l": "l", "liter": "l", "liters": "l", "litre": "l", "litres": "l",
-        }
-
-        if not numeric_columns:
-            st.info("I couldn't find a numeric measurement column to convert.")
-        elif not unit_columns:
-            st.info(
-                "I couldn't find a text column containing units. "
-                "This converter expects the number and unit in separate columns."
-            )
-        else:
-            measurement_column = st.selectbox(
-                "Which column contains the measurement?",
-                numeric_columns,
-                key="unit_measurement_column",
-            )
-            unit_column = st.selectbox(
-                "Which column contains its unit?",
-                unit_columns,
-                key="unit_label_column",
+            st.write("Calculate price per item:")
+            st.code('col("Sales") / col("Quantity")')
+            st.write("Standardize text labels:")
+            st.code('lower(strip(col("City")))')
+            st.write("Create a category from a numeric value:")
+            st.code('where(col("Age") < 18, "minor", "adult")')
+            st.caption(
+                "For a unit conversion, the formula must account for the unit in each row. "
+                "The example assumes the only units are kg and lb."
             )
 
-            raw_units = (
-                df[unit_column]
-                .dropna()
-                .astype("string")
-                .str.strip()
-            )
-            observed_canonical_units = {}
-            for raw_unit in raw_units.drop_duplicates():
-                canonical = unit_aliases.get(str(raw_unit).casefold())
-                if canonical:
-                    observed_canonical_units.setdefault(canonical, str(raw_unit))
+        formula = st.text_area(
+            "Formula",
+            placeholder='For example: col("Sales") / col("Quantity")',
+            key="derived_formula",
+            help='Use col("Exact column name") to refer to a column, including names with spaces.',
+        )
+        output_column = st.text_input(
+            "New column name",
+            value="derived_value",
+            key="formula_output_column",
+        )
 
-            if not observed_canonical_units:
-                st.info(
-                    "I couldn't recognize common mass or volume units in this column yet. "
-                    "The column inspection above can show you its values."
-                )
+        if formula.strip():
+            if not output_column.strip():
+                st.info("Enter a name for the new column.")
+            elif output_column in df.columns:
+                st.warning("Choose a new column name that does not already exist.")
             else:
-                observed_units = list(observed_canonical_units)
-                source_unit = st.selectbox(
-                    "Convert values from",
-                    observed_units,
-                    format_func=lambda unit: f"{observed_canonical_units[unit]} ({unit})",
-                    key="unit_source",
-                )
-                source_dimension = unit_definitions[source_unit][0]
-                target_units = [
-                    unit for unit, (dimension, _) in unit_definitions.items()
-                    if dimension == source_dimension and unit != source_unit
-                ]
-
-                if not target_units:
-                    st.info("There isn't another supported unit in this measurement group.")
-                else:
-                    preferred_target = (
-                        "lb" if source_dimension == "mass" and source_unit == "kg"
-                        else "kg" if source_dimension == "mass"
-                        else "l" if source_unit == "ml"
-                        else "ml"
-                    )
-                    target_unit = st.selectbox(
-                        "Convert to",
-                        target_units,
-                        index=target_units.index(preferred_target)
-                        if preferred_target in target_units else 0,
-                        key="unit_target",
-                    )
-
-                    output_column = re.sub(
-                        r"\W+",
-                        "_",
-                        f"{measurement_column}_{target_unit}",
-                    ).strip("_")
-                    if output_column in df.columns:
-                        st.warning(
-                            f"The output column {output_column!r} already exists. "
-                            "Choose a different measurement column or remove/rename that existing column."
+                try:
+                    formula_result = evaluate_formula(formula, df)
+                    if isinstance(formula_result, pd.Series):
+                        output_values = formula_result.reindex(df.index)
+                    elif np.isscalar(formula_result):
+                        output_values = pd.Series(
+                            [formula_result] * len(df),
+                            index=df.index,
                         )
                     else:
-                        normalized_units = (
-                            df[unit_column]
-                            .astype("string")
-                            .str.strip()
-                            .str.casefold()
-                            .map(unit_aliases)
-                            .fillna("")
+                        result_array = np.asarray(formula_result)
+                        if len(result_array) != len(df):
+                            raise ValueError(
+                                "The formula result must produce one value per row."
+                            )
+                        output_values = pd.Series(result_array, index=df.index)
+
+                    referenced_columns = list(dict.fromkeys(
+                        re.findall(
+                            r"col\s*\(\s*['\"]([^'\"]+)['\"]\s*\)",
+                            formula,
                         )
-                        numeric_values = pd.to_numeric(
-                            df[measurement_column],
-                            errors="coerce",
-                        )
-                        source_mask = normalized_units == source_unit
-                        target_mask = normalized_units == target_unit
-                        source_rows = source_mask & numeric_values.notna()
-                        target_rows = target_mask & numeric_values.notna()
-                        other_rows = (
-                            ~(source_mask | target_mask)
-                            & numeric_values.notna()
+                    ))
+                    missing_references = [
+                        column for column in referenced_columns
+                        if column not in df.columns
+                    ]
+                    if missing_references:
+                        raise ValueError(
+                            f"Column {missing_references[0]!r} was not found."
                         )
 
-                        conversion_factor = (
-                            unit_definitions[source_unit][1]
-                            / unit_definitions[target_unit][1]
-                        )
-                        converted_values = pd.Series(
-                            np.nan,
-                            index=df.index,
-                            dtype="float64",
-                        )
-                        converted_values.loc[source_rows] = (
-                            numeric_values.loc[source_rows] * conversion_factor
-                        )
-                        converted_values.loc[target_rows] = numeric_values.loc[target_rows]
+                    prepared_df = df.copy()
+                    prepared_df[output_column] = output_values
+                    preview_columns = [
+                        column for column in referenced_columns
+                        if column in df.columns
+                    ]
+                    preview = df[preview_columns].copy() if preview_columns else pd.DataFrame(index=df.index)
+                    preview[output_column] = output_values
 
-                        prepared_df = df.copy()
-                        prepared_df[output_column] = converted_values
+                    result_count = int(output_values.notna().sum())
+                    blank_count = int(output_values.isna().sum())
+                    result_metric, blank_metric = st.columns(2)
+                    result_metric.metric("Rows with a result", f"{result_count:,}")
+                    blank_metric.metric("Blank results", f"{blank_count:,}")
 
-                        st.write(
-                            f"**{source_unit} → {target_unit}** multiplies the measurement "
-                            f"by **{conversion_factor:.8g}**."
-                        )
-                        converted_metric, kept_metric, other_metric = st.columns(3)
-                        converted_metric.metric("Converted rows", f"{int(source_rows.sum()):,}")
-                        kept_metric.metric("Already in target unit", f"{int(target_rows.sum()):,}")
-                        other_metric.metric("Other or unrecognized units", f"{int(other_rows.sum()):,}")
+                    st.write("Preview the inputs and new column:")
+                    st.dataframe(preview.head(20), width="stretch")
 
-                        preview = df[[measurement_column, unit_column]].copy()
-                        preview[output_column] = converted_values
-                        st.write("Check a few results before downloading.")
-                        st.dataframe(preview.head(20), width="stretch")
-
-                        file_stem = uploaded_file.name.rsplit(".", 1)[0]
-                        st.download_button(
-                            "Download converted CSV",
-                            data=prepared_df.to_csv(index=False).encode("utf-8"),
-                            file_name=f"{file_stem}_converted.csv",
-                            mime="text/csv",
-                            key="download_unit_conversion",
-                        )
+                    file_stem = uploaded_file.name.rsplit(".", 1)[0]
+                    st.download_button(
+                        "Download prepared CSV",
+                        data=prepared_df.to_csv(index=False).encode("utf-8"),
+                        file_name=f"{file_stem}_prepared.csv",
+                        mime="text/csv",
+                        key="download_formula_csv",
+                    )
+                except (
+                    SyntaxError,
+                    ValueError,
+                    TypeError,
+                    ZeroDivisionError,
+                    AttributeError,
+                    re.error,
+                ) as error:
+                    st.error(
+                        f"Couldn't apply that formula: {error}. "
+                        "Check the column names and formula examples above."
+                    )
+        else:
+            st.info("Enter a formula to preview a new column.")
         st.subheader("Inspect a column")
         st.caption(
             "Choose one column for a closer look. These checks are clues to review, "
